@@ -1,0 +1,1075 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dungeon Backlog Slayer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800;900&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            cinzel: ['Cinzel', 'serif'],
+            sans: ['Inter', 'sans-serif'],
+          },
+          colors: {
+            dungeon: {
+              900: '#0a0b10',
+              800: '#121420',
+              700: '#1a1d2e',
+              600: '#282d46',
+              border: '#3a4163',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #0a0b10;
+      color: #e2e8f0;
+      font-family: 'Inter', sans-serif;
+      overflow-x: hidden;
+      user-select: none;
+    }
+
+    .fantasy-border {
+      border: 2px solid #3a4163;
+      box-shadow: 0 0 20px rgba(0, 0, 0, 0.8), inset 0 0 15px rgba(0, 0, 0, 0.5);
+      position: relative;
+    }
+
+    .fantasy-border::before {
+      content: '';
+      position: absolute;
+      top: -3px; left: -3px; right: -3px; bottom: -3px;
+      border: 1px solid rgba(212, 175, 55, 0.3);
+      pointer-events: none;
+      border-radius: inherit;
+    }
+
+    @keyframes slashEffect {
+      0% { transform: scale(0.4) rotate(-45deg); opacity: 1; }
+      50% { transform: scale(1.3) rotate(-15deg); opacity: 1; filter: drop-shadow(0 0 15px #ef4444); }
+      100% { transform: scale(1) rotate(0deg); opacity: 0; }
+    }
+
+    .slash-animation {
+      animation: slashEffect 0.45s ease-out forwards;
+    }
+
+    @keyframes floatDamage {
+      0% { transform: translateY(0px) scale(0.8); opacity: 1; }
+      50% { transform: translateY(-35px) scale(1.3); opacity: 1; }
+      100% { transform: translateY(-65px) scale(0.9); opacity: 0; }
+    }
+
+    .floating-damage {
+      animation: floatDamage 0.75s cubic-bezier(0.18, 0.89, 0.32, 1.28) forwards;
+    }
+
+    @keyframes winnerJump {
+      0% { transform: scale(1); box-shadow: 0 0 0 shadow; }
+      40% { transform: scale(1.15) translateY(-6px); box-shadow: 0 0 25px #eab308; }
+      70% { transform: scale(1.05) translateY(-2px); box-shadow: 0 0 35px #fef08a; }
+      100% { transform: scale(1.08); box-shadow: 0 0 20px #eab308; }
+    }
+
+    .winner-highlight {
+      animation: winnerJump 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+      background-color: rgba(234, 179, 8, 0.25) !important;
+      border: 2px solid #facc15 !important;
+      color: #fef08a !important;
+      border-radius: 10px;
+    }
+
+    .slot-viewport {
+      height: 200px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .slot-reel {
+      transition: transform 0.15s cubic-bezier(0.1, 0.8, 0.1, 1);
+    }
+
+    tr.dragging {
+      opacity: 0.4;
+      background-color: #282d46 !important;
+    }
+
+    tr.drag-over {
+      border-top: 2px solid #facc15 !important;
+    }
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0a0b10; }
+    ::-webkit-scrollbar-thumb { background: #282d46; border-radius: 3px; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between text-slate-200">
+
+  <header class="bg-dungeon-800 border-b border-dungeon-border p-3 sm:p-4 sticky top-0 z-40 shadow-xl">
+    <div class="max-w-7xl mx-auto flex flex-wrap justify-between items-center gap-3">
+      <div class="flex items-center gap-3 cursor-pointer" onclick="app.showScreen('dungeon')">
+        <div class="w-10 h-10 rounded-lg bg-red-950/80 border border-red-500/40 flex items-center justify-center text-red-500 text-xl shadow-lg">
+          <i class="fa-solid font-bold fa-dungeon"></i>
+        </div>
+        <div>
+          <h1 class="font-cinzel text-lg sm:text-xl font-black tracking-wider text-amber-400 leading-none">SLAYER</h1>
+          <p class="text-[10px] text-slate-400 tracking-widest uppercase font-semibold">Dungeon Backlog</p>
+        </div>
+      </div>
+
+      <div class="flex-1 max-w-xs sm:max-w-md mx-2">
+        <div class="flex justify-between text-xs font-semibold mb-1">
+          <span class="text-amber-300 font-cinzel">LVL <span id="player-level">1</span> HERO</span>
+          <span class="text-slate-400" id="player-xp-text">0 / 100 XP</span>
+        </div>
+        <div class="w-full bg-dungeon-900 h-3 rounded-full overflow-hidden border border-dungeon-border p-0.5">
+          <div id="player-xp-bar" class="bg-gradient-to-r from-amber-600 via-yellow-500 to-amber-300 h-full rounded-full transition-all duration-300 w-0"></div>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button id="sfx-toggle" onclick="app.toggleSFX()" class="px-3 py-1.5 rounded-lg bg-dungeon-700 hover:bg-dungeon-600 border border-dungeon-border text-xs flex items-center gap-1.5 transition">
+          <i id="sfx-icon" class="fa-solid fa-volume-high text-amber-400"></i>
+          <span class="hidden sm:inline">SFX</span>
+        </button>
+        <button onclick="app.showScreen('dungeon')" class="px-3 py-1.5 rounded-lg bg-red-900/60 hover:bg-red-800/80 border border-red-600/40 text-xs font-semibold text-slate-100 flex items-center gap-1.5 transition shadow">
+          <i class="fa-solid fa-skull text-red-400"></i>
+          <span>Dungeon</span>
+        </button>
+        <button onclick="app.showScreen('vault')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-xs font-semibold text-slate-200 flex items-center gap-1.5 transition shadow">
+          <i class="fa-solid fa-scroll text-amber-400"></i>
+          <span>Vault</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 flex flex-col justify-center">
+
+    <!-- SCREEN 1: ENTRANCE GATE -->
+    <section id="screen-gate" class="space-y-8 my-auto py-8">
+      <div class="text-center max-w-2xl mx-auto space-y-4">
+        <div class="inline-block p-4 rounded-full bg-red-950/40 border border-red-500/30 text-red-500 mb-2">
+          <i class="fa-solid fa-dragon text-5xl sm:text-6xl animate-pulse"></i>
+        </div>
+        <h2 class="font-cinzel text-3xl sm:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-400 to-amber-600 tracking-wide">
+          DUNGEON GATE
+        </h2>
+        <p class="text-slate-400 text-sm sm:text-base leading-relaxed">
+          The Hydra Curse awaits inside! Slaying a beast unleashes 3 random Hydra rolls from your backlog pool.
+        </p>
+
+        <div class="pt-4 flex flex-col sm:flex-row gap-4 justify-center items-center">
+          <button onclick="app.enterDungeonFirstTime()" class="w-full sm:w-auto px-8 py-4 rounded-xl bg-gradient-to-r from-red-700 via-red-600 to-amber-600 hover:from-red-600 hover:to-amber-500 font-cinzel font-bold text-lg text-white shadow-2xl border border-red-400/50 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-3">
+            <i class="fa-solid fa-dungeon text-amber-300"></i>
+            <span>ENTER THE DUNGEON</span>
+          </button>
+          
+          <button onclick="app.showScreen('vault')" class="w-full sm:w-auto px-6 py-4 rounded-xl bg-dungeon-800 hover:bg-dungeon-700 font-cinzel font-semibold text-slate-300 border border-dungeon-border hover:border-slate-500 transition-all flex items-center justify-center gap-2">
+            <i class="fa-solid fa-boxes-stacked text-amber-400"></i>
+            <span>MANAGE VAULT</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SCREEN 2: DUNGEON LAIR -->
+    <section id="screen-dungeon" class="hidden space-y-6">
+      
+      <div class="flex flex-wrap justify-between items-center gap-3 bg-dungeon-800 p-4 rounded-xl border border-dungeon-border shadow-lg">
+        <div>
+          <h2 class="font-cinzel text-xl font-bold text-amber-400 flex items-center gap-2">
+            <i class="fa-solid fa-skull-crossbones text-red-500"></i>
+            DUNGEON LAIR (<span id="active-count-badge">0</span> ACTIVE BEASTS)
+          </h2>
+          <p class="text-xs text-slate-400">Unlimited Capacity! Slaying 1 beast triggers 3 Hydra Rolls.</p>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <button onclick="app.castCleanse()" class="px-4 py-2 rounded-lg bg-gradient-to-r from-cyan-900 to-blue-900 hover:from-cyan-800 hover:to-blue-800 text-cyan-200 border border-cyan-500/40 text-xs font-bold flex items-center gap-2 transition hover:scale-105 active:scale-95 shadow-md">
+            <i class="fa-solid fa-wand-magic-sparkles text-cyan-400"></i>
+            <span>CLEANSE SPELL (RESET)</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="monsters-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <!-- Monster Cards dynamically generated -->
+      </div>
+
+    </section>
+
+    <!-- SCREEN 3: VAULT MANAGEMENT -->
+    <section id="screen-vault" class="hidden space-y-6">
+      
+      <div class="flex flex-wrap justify-between items-center gap-4 bg-dungeon-800 p-4 rounded-xl border border-dungeon-border">
+        <div>
+          <h2 class="font-cinzel text-2xl font-bold text-amber-400 flex items-center gap-2">
+            <i class="fa-solid fa-vault"></i>
+            THE BACKLOG VAULT
+          </h2>
+          <p class="text-xs text-slate-400">Drag & drop rows, click quick-sort buttons, or use up/down arrows to reorder.</p>
+        </div>
+        <button onclick="app.openAddItemModal()" class="px-4 py-2.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white font-semibold text-xs flex items-center gap-2 transition shadow">
+          <i class="fa-solid fa-plus"></i>
+          <span>ADD NEW ITEM</span>
+        </button>
+      </div>
+
+      <!-- ONE-CLICK SORTING CONTROLS -->
+      <div class="bg-dungeon-800/80 p-3 rounded-xl border border-dungeon-border flex flex-wrap items-center justify-between gap-3 text-xs">
+        <span class="font-cinzel font-bold text-amber-400 flex items-center gap-1.5">
+          <i class="fa-solid fa-arrow-down-short-wide"></i> QUICK SORT:
+        </span>
+        <div class="flex flex-wrap items-center gap-2">
+          <button onclick="app.sortVault('alphabetical-asc')" class="px-3 py-1.5 rounded bg-dungeon-700 hover:bg-dungeon-600 border border-dungeon-border text-slate-200 transition font-medium">
+            <i class="fa-solid fa-arrow-down-a-z text-amber-400 mr-1"></i> A-Z
+          </button>
+          <button onclick="app.sortVault('alphabetical-desc')" class="px-3 py-1.5 rounded bg-dungeon-700 hover:bg-dungeon-600 border border-dungeon-border text-slate-200 transition font-medium">
+            <i class="fa-solid fa-arrow-up-z-a text-amber-400 mr-1"></i> Z-A
+          </button>
+          <button onclick="app.sortVault('type')" class="px-3 py-1.5 rounded bg-dungeon-700 hover:bg-dungeon-600 border border-dungeon-border text-slate-200 transition font-medium">
+            <i class="fa-solid fa-layer-group text-amber-400 mr-1"></i> Type
+          </button>
+          <button onclick="app.sortVault('hp-desc')" class="px-3 py-1.5 rounded bg-dungeon-700 hover:bg-dungeon-600 border border-dungeon-border text-slate-200 transition font-medium">
+            <i class="fa-solid fa-heart-circle-bolt text-red-400 mr-1"></i> HP (High to Low)
+          </button>
+          <button onclick="app.sortVault('hp-asc')" class="px-3 py-1.5 rounded bg-dungeon-700 hover:bg-dungeon-600 border border-dungeon-border text-slate-200 transition font-medium">
+            <i class="fa-solid fa-heart text-emerald-400 mr-1"></i> HP (Low to High)
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-dungeon-800 rounded-xl border border-dungeon-border overflow-hidden shadow-xl">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs border-collapse">
+            <thead class="bg-dungeon-900 text-slate-400 uppercase font-cinzel text-[11px] tracking-wider border-b border-dungeon-border">
+              <tr>
+                <th class="p-3 w-10 text-center"><i class="fa-solid fa-grip-vertical"></i></th>
+                <th class="p-3">Title</th>
+                <th class="p-3">Type</th>
+                <th class="p-3">Remaining HP / Progress Left</th>
+                <th class="p-3 text-right">Order & Actions</th>
+              </tr>
+            </thead>
+            <tbody id="vault-table-body" class="divide-y divide-dungeon-border/50 text-slate-300">
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- MODAL: SLOT MACHINE REEL -->
+  <div id="modal-roll" class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-dungeon-800 border-2 border-amber-500/50 rounded-2xl p-6 max-w-lg w-full text-center space-y-6 shadow-2xl relative fantasy-border">
+      
+      <div class="flex justify-between items-center text-xs text-amber-400 font-cinzel font-bold border-b border-dungeon-border pb-3">
+        <span><i class="fa-solid fa-dice text-amber-400 mr-1"></i> HYDRA CURSE ROLL</span>
+        <span id="roll-step-counter">ROLL 1 OF 3</span>
+      </div>
+
+      <div class="slot-viewport bg-dungeon-900 border-2 border-amber-500/40 rounded-xl relative shadow-inner">
+        <div class="absolute inset-x-0 top-1/2 -translate-y-1/2 h-12 border-y-2 border-amber-400/80 bg-amber-500/10 pointer-events-none z-10"></div>
+        
+        <div id="slot-machine-reel" class="slot-reel flex flex-col items-center py-16 space-y-2">
+        </div>
+      </div>
+
+      <div id="roll-banner" class="min-h-[60px] flex flex-col items-center justify-center p-3 rounded-lg bg-dungeon-900/80 border border-dungeon-border">
+        <p class="text-sm font-semibold text-slate-300" id="roll-banner-text">Spinning destiny reels...</p>
+        <span class="text-xs text-amber-400 mt-1 hidden" id="roll-banner-sub"></span>
+      </div>
+
+      <div>
+        <button id="roll-confirm-btn" disabled onclick="app.confirmNextRollStep()" class="w-full py-3.5 rounded-xl bg-amber-600 hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-cinzel font-black text-sm tracking-wide shadow-lg transition-all flex items-center justify-center gap-2">
+          <span>SPINNING...</span>
+          <i class="fa-solid fa-spinner animate-spin"></i>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- MODAL: SOMETHING NEW -->
+  <div id="modal-something-new" class="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-dungeon-800 border-2 border-orange-500/60 rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl fantasy-border">
+      <div class="text-center">
+        <div class="w-12 h-12 mx-auto rounded-full bg-orange-500/20 text-orange-400 flex items-center justify-center text-2xl mb-2">
+          <i class="fa-solid fa-sparkles"></i>
+        </div>
+        <h3 class="font-cinzel text-xl font-bold text-orange-400">SOMETHING NEW EMERGED!</h3>
+        <p class="text-xs text-slate-400 mt-1">Enter a brand new title to spawn it immediately into the active dungeon battlefield!</p>
+      </div>
+
+      <div class="space-y-3">
+        <div>
+          <label class="text-xs font-semibold text-slate-300 block mb-1">Title</label>
+          <input type="text" id="new-item-title" placeholder="e.g. Solo Leveling" class="w-full bg-dungeon-900 border border-dungeon-border rounded-lg p-2.5 text-sm text-slate-100 outline-none focus:border-orange-500">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs font-semibold text-slate-300 block mb-1">Type</label>
+            <select id="new-item-type" class="w-full bg-dungeon-900 border border-dungeon-border rounded-lg p-2.5 text-xs text-slate-100 outline-none focus:border-orange-500">
+              <option value="Anime">Anime</option>
+              <option value="Show">TV Show</option>
+              <option value="Book">Book (%)</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-slate-300 block mb-1">Remaining HP</label>
+            <input type="number" id="new-item-hp" value="12" min="1" max="500" class="w-full bg-dungeon-900 border border-dungeon-border rounded-lg p-2.5 text-sm text-slate-100 outline-none focus:border-orange-500">
+          </div>
+        </div>
+      </div>
+
+      <button onclick="app.submitSomethingNew()" class="w-full py-3 rounded-xl bg-orange-600 hover:bg-orange-500 font-cinzel font-bold text-slate-950 text-sm tracking-wide shadow-lg transition">
+        SPAWN MONSTER & ADD TO VAULT
+      </button>
+    </div>
+  </div>
+
+  <!-- MODAL: ADD VAULT ITEM -->
+  <div id="modal-add-vault" class="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-dungeon-800 border-2 border-slate-600 rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl fantasy-border">
+      <div class="flex justify-between items-center border-b border-dungeon-border pb-3">
+        <h3 class="font-cinzel text-lg font-bold text-amber-400">ADD BACKLOG ITEM</h3>
+        <button onclick="app.closeModal('modal-add-vault')" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="space-y-3">
+        <div>
+          <label class="text-xs font-semibold text-slate-300 block mb-1">Title</label>
+          <input type="text" id="add-item-title" placeholder="e.g. One Piece" class="w-full bg-dungeon-900 border border-dungeon-border rounded-lg p-2.5 text-sm text-slate-100 outline-none focus:border-amber-500">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs font-semibold text-slate-300 block mb-1">Type</label>
+            <select id="add-item-type" class="w-full bg-dungeon-900 border border-dungeon-border rounded-lg p-2.5 text-xs text-slate-100 outline-none focus:border-amber-500">
+              <option value="Anime">Anime (Episodes Left)</option>
+              <option value="Show">TV Show (Episodes Left)</option>
+              <option value="Book">Book (% Left)</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-slate-300 block mb-1">HP / Progress Left</label>
+            <input type="number" id="add-item-hp" value="24" min="1" max="1000" class="w-full bg-dungeon-900 border border-dungeon-border rounded-lg p-2.5 text-sm text-slate-100 outline-none focus:border-amber-500">
+          </div>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-2">
+        <button onclick="app.closeModal('modal-add-vault')" class="px-4 py-2 rounded-lg bg-dungeon-700 hover:bg-dungeon-600 text-xs text-slate-300">Cancel</button>
+        <button onclick="app.submitAddVaultItem()" class="px-5 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-xs font-bold text-slate-950">Add to Vault</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    class SoundEngine {
+      constructor() {
+        this.enabled = true;
+        this.ctx = null;
+      }
+
+      init() {
+        if (!this.ctx) {
+          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+      }
+
+      playSlash() {
+        if (!this.enabled) return;
+        this.init();
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(800, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(100, this.ctx.currentTime + 0.15);
+        gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.15);
+      }
+
+      playTick() {
+        if (!this.enabled) return;
+        this.init();
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(450, this.ctx.currentTime);
+        gain.gain.setValueAtTime(0.08, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.035);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.035);
+      }
+
+      playFanfare() {
+        if (!this.enabled) return;
+        this.init();
+        [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, this.ctx.currentTime + idx * 0.08);
+          gain.gain.setValueAtTime(0.18, this.ctx.currentTime + idx * 0.08);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + idx * 0.08 + 0.25);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(this.ctx.currentTime + idx * 0.08);
+          osc.stop(this.ctx.currentTime + idx * 0.08 + 0.25);
+        });
+      }
+
+      playHeal() {
+        if (!this.enabled) return;
+        this.init();
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(300, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(900, this.ctx.currentTime + 0.3);
+        gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.3);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.3);
+      }
+    }
+
+    class DungeonApp {
+      constructor() {
+        this.sound = new SoundEngine();
+
+        this.permanentWildcards = [
+          { id: 'perm-movie', title: 'Movie', type: 'Movie', hp: 1, maxHp: 1, isWildcard: true },
+          { id: 'perm-manga', title: 'Manga', type: 'Manga', hp: 10, maxHp: 10, isWildcard: true },
+          { id: 'perm-new', title: 'Something New', type: 'Something New', hp: 1, maxHp: 1, isWildcard: true }
+        ];
+
+        this.vault = JSON.parse(localStorage.getItem('dbs_vault')) || [
+          { id: 'v1', title: 'Attack on Titan', type: 'Anime', hp: 25, maxHp: 25 },
+          { id: 'v2', title: 'Stranger Things', type: 'Show', hp: 8, maxHp: 8 },
+          { id: 'v3', title: 'Dune: Part One', type: 'Book', hp: 100, maxHp: 100 }
+        ];
+
+        this.vault.forEach(item => {
+          if (item.maxHp === undefined) item.maxHp = item.hp;
+        });
+
+        this.activeMonsters = JSON.parse(localStorage.getItem('dbs_active')) || [];
+        this.activeMonsters.forEach(monster => {
+          if (monster.maxHp === undefined) monster.maxHp = monster.hp;
+        });
+
+        this.level = parseInt(localStorage.getItem('dbs_level')) || 1;
+        this.xp = parseInt(localStorage.getItem('dbs_xp')) || 0;
+
+        this.summonQueueRemaining = 0;
+        this.draggedIndex = null;
+
+        this.init();
+      }
+
+      init() {
+        this.updateHUD();
+        this.renderVault();
+        if (this.activeMonsters.length > 0) {
+          this.showScreen('dungeon');
+        } else {
+          this.showScreen('gate');
+        }
+      }
+
+      saveState() {
+        localStorage.setItem('dbs_vault', JSON.stringify(this.vault));
+        localStorage.setItem('dbs_active', JSON.stringify(this.activeMonsters));
+        localStorage.setItem('dbs_level', this.level.toString());
+        localStorage.setItem('dbs_xp', this.xp.toString());
+        this.updateHUD();
+      }
+
+      updateHUD() {
+        document.getElementById('player-level').innerText = this.level;
+        const targetXP = this.level * 100;
+        document.getElementById('player-xp-text').innerText = `${this.xp} / ${targetXP} XP`;
+        const pct = Math.min(100, Math.floor((this.xp / targetXP) * 100));
+        document.getElementById('player-xp-bar').style.width = `${pct}%`;
+        document.getElementById('active-count-badge').innerText = this.activeMonsters.length;
+      }
+
+      showScreen(screenId) {
+        document.getElementById('screen-gate').classList.add('hidden');
+        document.getElementById('screen-dungeon').classList.add('hidden');
+        document.getElementById('screen-vault').classList.add('hidden');
+
+        document.getElementById(`screen-${screenId}`).classList.remove('hidden');
+        if (screenId === 'vault') this.renderVault();
+        if (screenId === 'dungeon') this.renderMonsters();
+      }
+
+      toggleSFX() {
+        this.sound.enabled = !this.sound.enabled;
+        const icon = document.getElementById('sfx-icon');
+        icon.className = this.sound.enabled ? 'fa-solid fa-volume-high text-amber-400' : 'fa-solid fa-volume-xmark text-slate-500';
+      }
+
+      enterDungeonFirstTime() {
+        this.showScreen('dungeon');
+        if (this.activeMonsters.length === 0) {
+          this.startSummonSequence(3);
+        }
+      }
+
+      startSummonSequence(count) {
+        this.summonQueueRemaining = count;
+        this.triggerNextRoll();
+      }
+
+      triggerNextRoll() {
+        if (this.summonQueueRemaining <= 0) {
+          this.closeModal('modal-roll');
+          this.renderMonsters();
+          return;
+        }
+
+        const modal = document.getElementById('modal-roll');
+        modal.classList.remove('hidden');
+
+        const stepCounter = document.getElementById('roll-step-counter');
+        const rollNum = 4 - this.summonQueueRemaining;
+        stepCounter.innerText = `ROLL ${rollNum} OF 3`;
+
+        const bannerText = document.getElementById('roll-banner-text');
+        const bannerSub = document.getElementById('roll-banner-sub');
+        bannerText.innerText = "Spinning destiny reels...";
+        bannerSub.classList.add('hidden');
+
+        const confirmBtn = document.getElementById('roll-confirm-btn');
+        confirmBtn.disabled = true;
+        confirmBtn.innerHTML = `<span>SPINNING...</span><i class="fa-solid fa-spinner animate-spin"></i>`;
+
+        const pool = [...this.vault, ...this.permanentWildcards];
+        const picked = pool[Math.floor(Math.random() * pool.length)];
+
+        this.animateSlotMachine(pool, picked, () => {
+          this.evaluateRollResult(picked);
+        });
+      }
+
+      animateSlotMachine(pool, targetItem, callback) {
+        const reel = document.getElementById('slot-machine-reel');
+        reel.innerHTML = '';
+
+        const reelItems = [];
+        for (let i = 0; i < 20; i++) {
+          reelItems.push(pool[Math.floor(Math.random() * pool.length)]);
+        }
+        reelItems.push(targetItem);
+
+        reelItems.forEach((item) => {
+          const div = document.createElement('div');
+          div.className = `w-full py-2.5 px-4 text-center font-cinzel font-bold text-sm sm:text-base border border-dungeon-border/40 rounded-lg bg-dungeon-900/90 text-slate-300 transition-all duration-200`;
+          div.innerHTML = `<span class="uppercase text-[10px] px-2 py-0.5 rounded border border-current mr-2 ${this.getTypeColorText(item.type)}">${item.type}</span> ${item.title}`;
+          reel.appendChild(div);
+        });
+
+        let currentIdx = 0;
+        const totalIdx = reelItems.length - 1;
+        
+        const tickStep = () => {
+          this.sound.playTick();
+          const targetY = -(currentIdx * 46);
+          reel.style.transform = `translateY(${targetY}px)`;
+
+          if (currentIdx < totalIdx) {
+            currentIdx++;
+            const speed = 50 + Math.pow(currentIdx / totalIdx, 3) * 220;
+            setTimeout(tickStep, speed);
+          } else {
+            const winnerNode = reel.children[totalIdx];
+            if (winnerNode) {
+              winnerNode.classList.add('winner-highlight');
+            }
+            this.sound.playFanfare();
+            setTimeout(callback, 350);
+          }
+        };
+
+        tickStep();
+      }
+
+      evaluateRollResult(item) {
+        const bannerText = document.getElementById('roll-banner-text');
+        const bannerSub = document.getElementById('roll-banner-sub');
+        const confirmBtn = document.getElementById('roll-confirm-btn');
+
+        const activeMatch = this.activeMonsters.find(m => m.title.toLowerCase() === item.title.toLowerCase());
+
+        if (activeMatch) {
+          if (item.type === 'Manga') {
+            activeMatch.hp += 10;
+            activeMatch.maxHp += 10;
+            this.sound.playHeal();
+            bannerText.innerHTML = `<span class="text-emerald-400 font-bold"><i class="fa-solid fa-book-open mr-1"></i> MANGA STACKED! +10 HP</span>`;
+            bannerSub.innerText = `Active Manga monster gained +10 HP! (Total: ${activeMatch.hp} HP)`;
+            bannerSub.classList.remove('hidden');
+          } else {
+            bannerText.innerHTML = `<span class="text-amber-300 font-bold"><i class="fa-solid fa-shield-halved mr-1"></i> ALREADY ACTIVE IN DUNGEON!</span>`;
+            bannerSub.innerText = `"${item.title}" is already in battle. Duplicate ignored!`;
+            bannerSub.classList.remove('hidden');
+          }
+        } else {
+          if (item.type === 'Something New') {
+            bannerText.innerHTML = `<span class="text-orange-400 font-bold"><i class="fa-solid fa-sparkles mr-1"></i> SOMETHING NEW ROLLED!</span>`;
+            bannerSub.innerText = `Add a custom brand new title!`;
+            bannerSub.classList.remove('hidden');
+            this.pendingSomethingNew = true;
+          } else {
+            const newMonster = {
+              instanceId: 'm_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+              title: item.title,
+              type: item.type,
+              hp: item.hp,
+              maxHp: item.maxHp || item.hp
+            };
+            this.activeMonsters.push(newMonster);
+
+            bannerText.innerHTML = `<span class="text-emerald-400 font-bold"><i class="fa-solid fa-dragon mr-1"></i> MONSTER JOINED BATTLEFIELD!</span>`;
+            bannerSub.innerText = `"${item.title}" (${item.type} - ${item.hp} HP) entered the dungeon!`;
+            bannerSub.classList.remove('hidden');
+          }
+        }
+
+        this.saveState();
+
+        confirmBtn.disabled = false;
+        const remainingAfter = this.summonQueueRemaining - 1;
+        if (remainingAfter > 0) {
+          confirmBtn.innerHTML = `<span>CONTINUE TO ROLL ${4 - remainingAfter} OF 3 (OK)</span><i class="fa-solid fa-arrow-right"></i>`;
+        } else {
+          confirmBtn.innerHTML = `<span>RETURN TO COMBAT (OK)</span><i class="fa-solid fa-check"></i>`;
+        }
+      }
+
+      confirmNextRollStep() {
+        if (this.pendingSomethingNew) {
+          this.pendingSomethingNew = false;
+          this.closeModal('modal-roll');
+          this.openSomethingNewModal();
+          return;
+        }
+
+        this.summonQueueRemaining--;
+        if (this.summonQueueRemaining > 0) {
+          this.triggerNextRoll();
+        } else {
+          this.closeModal('modal-roll');
+          this.renderMonsters();
+        }
+      }
+
+      openSomethingNewModal() {
+        document.getElementById('new-item-title').value = '';
+        document.getElementById('modal-something-new').classList.remove('hidden');
+      }
+
+      submitSomethingNew() {
+        const titleInput = document.getElementById('new-item-title').value.trim();
+        const typeInput = document.getElementById('new-item-type').value;
+        const hpInput = parseInt(document.getElementById('new-item-hp').value) || 12;
+
+        if (!titleInput) {
+          alert("Please enter a title!");
+          return;
+        }
+
+        this.vault.push({
+          id: 'v_' + Date.now(),
+          title: titleInput,
+          type: typeInput,
+          hp: hpInput,
+          maxHp: hpInput
+        });
+
+        this.activeMonsters.push({
+          instanceId: 'm_' + Date.now(),
+          title: titleInput,
+          type: typeInput,
+          hp: hpInput,
+          maxHp: hpInput
+        });
+
+        this.closeModal('modal-something-new');
+        this.saveState();
+        this.renderMonsters();
+
+        if (this.summonQueueRemaining > 1) {
+          this.summonQueueRemaining--;
+          this.triggerNextRoll();
+        }
+      }
+
+      attackMonster(instanceId) {
+        const monster = this.activeMonsters.find(m => m.instanceId === instanceId);
+        if (!monster) return;
+
+        const dmgInput = document.getElementById(`dmg-input-${instanceId}`);
+        const damage = parseInt(dmgInput ? dmgInput.value : 1) || 1;
+
+        this.sound.playSlash();
+        this.triggerSlashVisual(instanceId, damage);
+
+        monster.hp = Math.max(0, monster.hp - damage);
+
+        const vaultMatch = this.vault.find(v => v.title.toLowerCase() === monster.title.toLowerCase());
+        if (vaultMatch) {
+          vaultMatch.hp = monster.hp;
+        }
+
+        this.addXP(damage * 5);
+
+        if (monster.hp <= 0) {
+          this.addXP(50);
+          this.activeMonsters = this.activeMonsters.filter(m => m.instanceId !== instanceId);
+
+          if (vaultMatch && vaultMatch.hp <= 0) {
+            this.vault = this.vault.filter(v => v.id !== vaultMatch.id);
+          }
+
+          this.saveState();
+
+          setTimeout(() => {
+            this.startSummonSequence(3);
+          }, 500);
+        } else {
+          this.saveState();
+          this.renderMonsters();
+        }
+      }
+
+      addXP(amount) {
+        this.xp += amount;
+        const target = this.level * 100;
+        if (this.xp >= target) {
+          this.xp -= target;
+          this.level++;
+          this.sound.playFanfare();
+        }
+        this.updateHUD();
+      }
+
+      triggerSlashVisual(instanceId, damage) {
+        const card = document.getElementById(`monster-card-${instanceId}`);
+        if (!card) return;
+
+        const slash = document.createElement('div');
+        slash.className = 'absolute inset-0 z-30 pointer-events-none flex items-center justify-center';
+        slash.innerHTML = `<i class="fa-solid fa-bolt-lightning text-red-500 text-7xl slash-animation drop-shadow-[0_0_15px_rgba(239,68,68,0.9)]"></i>`;
+        card.appendChild(slash);
+
+        const floatText = document.createElement('div');
+        floatText.className = 'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 font-cinzel font-black text-3xl text-yellow-300 floating-damage pointer-events-none z-30 drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]';
+        floatText.innerText = `-${damage} HP`;
+        card.appendChild(floatText);
+
+        setTimeout(() => {
+          slash.remove();
+          floatText.remove();
+        }, 850);
+      }
+
+      castCleanse() {
+        if (confirm("Cast Cleanse Spell? This wipes all active monsters and exiles you back to the gate.")) {
+          this.activeMonsters = [];
+          this.saveState();
+          this.showScreen('gate');
+        }
+      }
+
+      renderMonsters() {
+        const container = document.getElementById('monsters-container');
+        container.innerHTML = '';
+
+        if (this.activeMonsters.length === 0) {
+          container.innerHTML = `
+            <div class="col-span-full py-16 text-center border-2 border-dashed border-dungeon-border rounded-2xl bg-dungeon-800/40 space-y-3">
+              <i class="fa-solid fa-ghost text-4xl text-slate-600"></i>
+              <h3 class="font-cinzel text-lg font-bold text-slate-400">THE LAIR IS EMPTY</h3>
+              <p class="text-xs text-slate-500">Roll the Hydra reels to summon monsters into the lair!</p>
+              <button onclick="app.startSummonSequence(3)" class="mt-2 px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-slate-950 font-cinzel font-bold text-xs shadow-lg transition">
+                <i class="fa-solid fa-dice mr-1"></i> ROLL 3 HYDRA SUMMONS
+              </button>
+            </div>
+          `;
+          return;
+        }
+
+        this.activeMonsters.forEach(m => {
+          const card = document.createElement('div');
+          card.id = `monster-card-${m.instanceId}`;
+          card.className = `relative bg-dungeon-800 border-2 ${this.getTypeBorderColor(m.type)} rounded-2xl p-5 shadow-2xl flex flex-col justify-between space-y-4 fantasy-border transition-all hover:scale-[1.01]`;
+
+          const maxHp = m.maxHp || m.hp || 1;
+          const pct = Math.max(0, Math.min(100, Math.floor((m.hp / maxHp) * 100)));
+
+          card.innerHTML = `
+            <div class="flex justify-between items-start gap-2">
+              <span class="px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wider uppercase ${this.getTypeBadgeColor(m.type)}">
+                ${m.type}
+              </span>
+              <span class="text-xs font-cinzel text-slate-400 font-semibold">
+                ID #${m.instanceId.slice(-4)}
+              </span>
+            </div>
+
+            <div class="space-y-1">
+              <h3 class="font-cinzel text-xl font-bold text-slate-100 leading-snug">${m.title}</h3>
+              <div class="text-xs text-slate-400 flex items-center gap-1.5">
+                <i class="fa-solid fa-heart-pulse text-red-400"></i>
+                <span>${m.type === 'Book' ? `Remaining: ${m.hp}% Left` : `HP Left: ${m.hp}`}</span>
+              </div>
+            </div>
+
+            <div class="space-y-1">
+              <div class="w-full bg-dungeon-900 h-3.5 rounded-full border border-dungeon-border p-0.5 overflow-hidden">
+                <div class="h-full rounded-full bg-gradient-to-r from-red-600 via-amber-500 to-emerald-400 transition-all duration-300" style="width: ${pct}%"></div>
+              </div>
+            </div>
+
+            <div class="pt-2 border-t border-dungeon-border/60 space-y-2">
+              <label class="text-[11px] uppercase font-bold text-slate-400 block">Slay Progress (Damage)</label>
+              <div class="flex gap-2">
+                <input type="number" id="dmg-input-${m.instanceId}" value="1" min="1" max="${m.hp}" class="w-20 bg-dungeon-900 border border-dungeon-border rounded-lg px-2 py-1.5 text-center text-sm font-bold text-amber-300 outline-none focus:border-amber-500">
+                <button onclick="app.attackMonster('${m.instanceId}')" class="flex-1 py-2 rounded-lg bg-gradient-to-r from-red-700 to-amber-600 hover:from-red-600 hover:to-amber-500 text-white font-cinzel font-bold text-xs tracking-wider shadow-md hover:shadow-red-900/40 transition active:scale-95 flex items-center justify-center gap-1.5">
+                  <i class="fa-solid fa-burst"></i>
+                  <span>ATTACK / SLAY</span>
+                </button>
+              </div>
+            </div>
+          `;
+          container.appendChild(card);
+        });
+      }
+
+      /* VAULT SORTING & REORDERING METHODS */
+      sortVault(type) {
+        if (type === 'alphabetical-asc') {
+          this.vault.sort((a, b) => a.title.localeCompare(b.title));
+        } else if (type === 'alphabetical-desc') {
+          this.vault.sort((a, b) => b.title.localeCompare(a.title));
+        } else if (type === 'type') {
+          this.vault.sort((a, b) => a.type.localeCompare(b.type) || a.title.localeCompare(b.title));
+        } else if (type === 'hp-desc') {
+          this.vault.sort((a, b) => b.hp - a.hp);
+        } else if (type === 'hp-asc') {
+          this.vault.sort((a, b) => a.hp - b.hp);
+        }
+        this.saveState();
+        this.renderVault();
+      }
+
+      moveVaultItem(index, direction) {
+        const targetIndex = index + direction;
+        if (targetIndex < 0 || targetIndex >= this.vault.length) return;
+        
+        const temp = this.vault[index];
+        this.vault[index] = this.vault[targetIndex];
+        this.vault[targetIndex] = temp;
+
+        this.saveState();
+        this.renderVault();
+      }
+
+      renderVault() {
+        const tableBody = document.getElementById('vault-table-body');
+        tableBody.innerHTML = '';
+
+        if (this.vault.length === 0) {
+          tableBody.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-slate-500">Vault is empty. Click "+ Add New Item" to add backlog items!</td></tr>`;
+          return;
+        }
+
+        this.vault.forEach((item, index) => {
+          const tr = document.createElement('tr');
+          tr.className = 'hover:bg-dungeon-700/50 transition cursor-grab active:cursor-grabbing';
+          tr.draggable = true;
+          tr.dataset.index = index;
+
+          /* Drag & Drop Event Listeners */
+          tr.addEventListener('dragstart', (e) => {
+            this.draggedIndex = index;
+            tr.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+          });
+
+          tr.addEventListener('dragend', () => {
+            tr.classList.remove('dragging');
+            document.querySelectorAll('#vault-table-body tr').forEach(r => r.classList.remove('drag-over'));
+          });
+
+          tr.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            tr.classList.add('drag-over');
+          });
+
+          tr.addEventListener('dragleave', () => {
+            tr.classList.remove('drag-over');
+          });
+
+          tr.addEventListener('drop', (e) => {
+            e.preventDefault();
+            tr.classList.remove('drag-over');
+            if (this.draggedIndex !== null && this.draggedIndex !== index) {
+              const draggedItem = this.vault.splice(this.draggedIndex, 1)[0];
+              this.vault.splice(index, 0, draggedItem);
+              this.draggedIndex = null;
+              this.saveState();
+              this.renderVault();
+            }
+          });
+
+          tr.innerHTML = `
+            <td class="p-3 text-center text-slate-500 hover:text-amber-400">
+              <i class="fa-solid fa-grip-vertical"></i>
+            </td>
+            <td class="p-3">
+              <input type="text" value="${item.title}" onchange="app.updateVaultItem('${item.id}', 'title', this.value)" class="bg-transparent border border-transparent hover:border-dungeon-border focus:border-amber-500 rounded px-1.5 py-0.5 text-slate-200 font-semibold w-full outline-none">
+            </td>
+            <td class="p-3">
+              <select onchange="app.updateVaultItem('${item.id}', 'type', this.value)" class="bg-dungeon-900 border border-dungeon-border rounded px-2 py-1 text-slate-300 outline-none">
+                <option value="Anime" ${item.type === 'Anime' ? 'selected' : ''}>Anime</option>
+                <option value="Show" ${item.type === 'Show' ? 'selected' : ''}>TV Show</option>
+                <option value="Book" ${item.type === 'Book' ? 'selected' : ''}>Book (%)</option>
+              </select>
+            </td>
+            <td class="p-3">
+              <input type="number" value="${item.hp}" min="1" onchange="app.updateVaultItem('${item.id}', 'hp', parseInt(this.value))" class="w-20 bg-dungeon-900 border border-dungeon-border rounded px-2 py-1 text-center font-bold text-amber-400 outline-none">
+            </td>
+            <td class="p-3 text-right">
+              <div class="flex items-center justify-end gap-1">
+                <button onclick="app.moveVaultItem(${index}, -1)" ${index === 0 ? 'disabled class="opacity-30 cursor-not-allowed px-1.5 py-1 text-slate-500"' : 'class="px-1.5 py-1 text-slate-400 hover:text-amber-400 hover:bg-dungeon-600 rounded transition"'}>
+                  <i class="fa-solid fa-caret-up"></i>
+                </button>
+                <button onclick="app.moveVaultItem(${index}, 1)" ${index === this.vault.length - 1 ? 'disabled class="opacity-30 cursor-not-allowed px-1.5 py-1 text-slate-500"' : 'class="px-1.5 py-1 text-slate-400 hover:text-amber-400 hover:bg-dungeon-600 rounded transition"'}>
+                  <i class="fa-solid fa-caret-down"></i>
+                </button>
+                <button onclick="app.deleteVaultItem('${item.id}')" class="ml-1 px-2.5 py-1 rounded bg-red-950 hover:bg-red-900 text-red-400 border border-red-800/50 text-xs transition">
+                  <i class="fa-solid fa-trash-can"></i>
+                </button>
+              </div>
+            </td>
+          `;
+          tableBody.appendChild(tr);
+        });
+      }
+
+      updateVaultItem(id, key, val) {
+        const item = this.vault.find(v => v.id === id);
+        if (item) {
+          item[key] = val;
+          if (key === 'hp') {
+            item.maxHp = val;
+          }
+          this.saveState();
+        }
+      }
+
+      deleteVaultItem(id) {
+        this.vault = this.vault.filter(v => v.id !== id);
+        this.saveState();
+        this.renderVault();
+      }
+
+      openAddItemModal() {
+        document.getElementById('add-item-title').value = '';
+        document.getElementById('modal-add-vault').classList.remove('hidden');
+      }
+
+      submitAddVaultItem() {
+        const title = document.getElementById('add-item-title').value.trim();
+        const type = document.getElementById('add-item-type').value;
+        const hp = parseInt(document.getElementById('add-item-hp').value) || 12;
+
+        if (!title) {
+          alert("Please enter a title!");
+          return;
+        }
+
+        this.vault.push({
+          id: 'v_' + Date.now(),
+          title: title,
+          type: type,
+          hp: hp,
+          maxHp: hp
+        });
+
+        this.closeModal('modal-add-vault');
+        this.saveState();
+        this.renderVault();
+      }
+
+      closeModal(id) {
+        document.getElementById(id).classList.add('hidden');
+      }
+
+      getTypeColorText(type) {
+        switch(type) {
+          case 'Anime': return 'text-blue-400 border-blue-400/40';
+          case 'Show': return 'text-purple-400 border-purple-400/40';
+          case 'Book': return 'text-yellow-400 border-yellow-400/40';
+          case 'Movie': return 'text-pink-400 border-pink-400/40';
+          case 'Manga': return 'text-emerald-400 border-emerald-400/40';
+          case 'Something New': return 'text-orange-400 border-orange-400/40';
+          default: return 'text-amber-400 border-amber-400/40';
+        }
+      }
+
+      getTypeBorderColor(type) {
+        switch(type) {
+          case 'Anime': return 'border-blue-500/50';
+          case 'Show': return 'border-purple-500/50';
+          case 'Book': return 'border-yellow-500/50';
+          case 'Movie': return 'border-pink-500/50';
+          case 'Manga': return 'border-emerald-500/50';
+          case 'Something New': return 'border-orange-500/50';
+          default: return 'border-dungeon-border';
+        }
+      }
+
+      getTypeBadgeColor(type) {
+        switch(type) {
+          case 'Anime': return 'bg-blue-950 text-blue-300 border border-blue-600/40';
+          case 'Show': return 'bg-purple-950 text-purple-300 border border-purple-600/40';
+          case 'Book': return 'bg-yellow-950 text-yellow-300 border border-yellow-600/40';
+          case 'Movie': return 'bg-pink-950 text-pink-300 border border-pink-600/40';
+          case 'Manga': return 'bg-emerald-950 text-emerald-300 border border-emerald-600/40';
+          case 'Something New': return 'bg-orange-950 text-orange-300 border border-orange-600/40';
+          default: return 'bg-slate-800 text-slate-300';
+        }
+      }
+    }
+
+    let app;
+    window.addEventListener('DOMContentLoaded', () => {
+      app = new DungeonApp();
+    });
+  </script>
+</body>
+</html>
